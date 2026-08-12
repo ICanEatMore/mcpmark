@@ -136,3 +136,12 @@ Apptainer 和 K3s 都必须经过实际能力验证。若 Apptainer 在 Pod 内�
 - 最简部署方式可采用详细设计建议的 `securityContext.privileged: true`，之后再基于实际 smoke 收紧权限。
 
 Gate 解阻后，下一纵向切片是 Postmill：固定 tar digest → immutable SIF → fresh per-slot writable overlay → instance/readiness → reset/fingerprint → cleanup/leak check。Shopping Admin 和 Shopping 只有在 Postmill 串行与双槽隔离 Gate 通过后才开始。
+
+三个输入 tar 的已验证 SHA-256、config digest、RepoTag、architecture 和 layer count 记录在 `WEBARENA_SOURCE_INVENTORY.json`。该文件只记录小型元数据；tar 本体、转换后的 SIF 和 writable overlay 均不得提交到 Git。可用以下只读命令重新生成并比对：
+
+```bash
+python -m src.runtime.artifacts \
+  postmill-populated-exposed-withimg.tar \
+  shopping_admin_final_0719.tar \
+  shopping_final_0712.tar
+```

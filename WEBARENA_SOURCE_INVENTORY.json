@@ -1,0 +1,41 @@
+[
+  {
+    "architecture": "amd64",
+    "config_digest": "bd8ae768c200fc4d005672af33fe03d49c9a058ae33997f3d50576e84cf51a1d",
+    "layer_count": 29,
+    "operating_system": "linux",
+    "repo_tags": [
+      "postmill-populated-exposed-withimg:latest"
+    ],
+    "schema_version": 1,
+    "source_filename": "postmill-populated-exposed-withimg.tar",
+    "source_sha256": "6ff70f73bc808b4cd9faf4e925dab2a4ae3cc5f9d0e9755360500607973a0dc5",
+    "source_size_bytes": 53435097088
+  },
+  {
+    "architecture": "amd64",
+    "config_digest": "d0709482086f0e4931771795ae2b1e4b13fb9237c22328c8df0d074763465ad4",
+    "layer_count": 31,
+    "operating_system": "linux",
+    "repo_tags": [
+      "shopping_admin_final_0719:latest"
+    ],
+    "schema_version": 1,
+    "source_filename": "shopping_admin_final_0719.tar",
+    "source_sha256": "ad607557a79f1bacf83c4661730802bbedc6bcbbf15078352ae59bcec74182b8",
+    "source_size_bytes": 9640032256
+  },
+  {
+    "architecture": "amd64",
+    "config_digest": "73e22b803149f8efa3f1171d2347fbdcc1063a2a20ddfbab4d5a20ea0fc7cc9c",
+    "layer_count": 28,
+    "operating_system": "linux",
+    "repo_tags": [
+      "shopping_final_0712:latest"
+    ],
+    "schema_version": 1,
+    "source_filename": "shopping_final_0712.tar",
+    "source_sha256": "2052430ee930d18a0c362997f1ccd1c500041f720ece8794ed77a77ee99139b5",
+    "source_size_bytes": 67575898112
+  }
+]
