@@ -115,3 +115,24 @@ Apptainer 和 K3s 都必须经过实际能力验证。若 Apptainer 在 Pod 内�
 ## 8. 完成定义
 
 重构完成的判定不是“Docker 调用消失”，而是：无 Docker 的长期 Evaluation Pod 能在保持 task/verifier 语义的前提下运行目标任务；每个环境的 reset 可验证；并发任务之间无状态泄漏；所有权限受限的场景都能给出明确、可操作的诊断与合规 fallback。
+
+## 9. 当前验证快照（2026-08-12）
+
+工作分支为 [`ICanEatMore/mcpmark:refactor/no-docker-playwright`](https://github.com/ICanEatMore/mcpmark/tree/refactor/no-docker-playwright)。当前已完成：
+
+- runtime contract、verified environment session、slot/port lease 和 process-group supervisor；
+- evaluator 在 setup、agent 和 verifier 异常路径上的 guaranteed cleanup；
+- capability doctor 对 Apptainer、mount namespace、FUSE、overlay、CNI 和 Playwright Chromium 的实际探测；
+- 普通 Playwright 通过固定 Chromium executable 启动 `@playwright/mcp@0.0.68`，完成 MCP initialize、tool listing、页面导航和关闭的无 Docker smoke；
+- 19 个单元测试、Ruff 与 Python compileall 通过。
+
+当前主机已安装 Apptainer v1.5.3、CNI plugins 和 squashfs-tools，并能完成 OCI → SIF 构建；但平台禁止 mount namespace，且 device cgroup 对 `/dev/fuse` 返回 `EPERM`，因此 `apptainer exec` 在挂载阶段失败。按照本文件和 `DETAILED_DESIGN.md` 的 Gate 约束，WebArena 实现停在此处，不自动降级为 host-process。
+
+目标 Evaluation Pod 至少需要满足：
+
+- 允许创建 Apptainer 所需的 mount namespace；
+- 允许进程实际打开 `/dev/fuse`；
+- 保留 Apptainer CNI/portmap 所需的网络权限；
+- 最简部署方式可采用详细设计建议的 `securityContext.privileged: true`，之后再基于实际 smoke 收紧权限。
+
+Gate 解阻后，下一纵向切片是 Postmill：固定 tar digest → immutable SIF → fresh per-slot writable overlay → instance/readiness → reset/fingerprint → cleanup/leak check。Shopping Admin 和 Shopping 只有在 Postmill 串行与双槽隔离 Gate 通过后才开始。
