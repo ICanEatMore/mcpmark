@@ -2,6 +2,7 @@
 
 from .environment import (
     EnvironmentHandle,
+    EnvironmentSession,
     EnvironmentSpec,
     GoldenArtifact,
     RuntimeBackend,
@@ -17,6 +18,7 @@ from .processes import ManagedProcessGroup, ProcessGroupSupervisor
 
 __all__ = [
     "EnvironmentHandle",
+    "EnvironmentSession",
     "EnvironmentSpec",
     "GoldenArtifact",
     "LeaseUnavailableError",

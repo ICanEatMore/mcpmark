@@ -96,3 +96,71 @@ class RuntimeBackend(ABC):
     @abstractmethod
     def release_slot(self, handle: EnvironmentHandle) -> None:
         """Release the slot and discard all task-writable state."""
+
+
+class EnvironmentSession:
+    """Orchestrate one verified environment slot with bounded cleanup.
+
+    A session is usable only after reset, start, and verification have all
+    succeeded.  Any exception after slot acquisition triggers best-effort stop
+    followed by release; cleanup exceptions never replace the original setup
+    exception.
+    """
+
+    def __init__(self, backend: RuntimeBackend, spec: EnvironmentSpec) -> None:
+        self.backend = backend
+        self.spec = spec
+        self.handle: EnvironmentHandle | None = None
+        self._released = False
+
+    def prepare(self) -> EnvironmentHandle:
+        if self.handle is not None:
+            raise RuntimeError("environment session is already prepared")
+
+        artifact = self.backend.materialize(self.spec)
+        if artifact.digest != self.spec.artifact.digest:
+            raise RuntimeError(
+                "materialized artifact digest does not match EnvironmentSpec"
+            )
+
+        self.handle = self.backend.acquire_slot(self.spec)
+        try:
+            self.handle = self.backend.reset(self.handle)
+            self.handle = self.backend.start(self.handle)
+            self.handle = self.backend.verify(self.handle)
+        except BaseException:
+            self.close(suppress_errors=True)
+            raise
+
+        if self.handle.artifact_digest != artifact.digest:
+            self.close(suppress_errors=True)
+            raise RuntimeError("verified slot does not match golden artifact digest")
+        if not self.handle.state_fingerprint:
+            self.close(suppress_errors=True)
+            raise RuntimeError("verified slot has no state fingerprint")
+        return self.handle
+
+    def close(self, *, suppress_errors: bool = False) -> None:
+        if self.handle is None or self._released:
+            return
+
+        errors: list[BaseException] = []
+        try:
+            self.backend.stop(self.handle)
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            self.backend.release_slot(self.handle)
+        except BaseException as exc:
+            errors.append(exc)
+        else:
+            self._released = True
+
+        if errors and not suppress_errors:
+            raise RuntimeError("environment cleanup failed") from errors[0]
+
+    def __enter__(self) -> EnvironmentHandle:
+        return self.prepare()
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
