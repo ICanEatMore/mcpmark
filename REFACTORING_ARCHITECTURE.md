@@ -42,10 +42,10 @@ Pod 是长期计算资源，不是 task isolation primitive。并发度、WebAre
 | GitHub MCP | 固定版本 native binary | 版本锁定不等于 Docker |
 | 普通 Playwright | 共享 Chromium，per-task browser context/profile | 浏览器上下文是正确的逻辑隔离单位 |
 | PostgreSQL MCP | Evaluation Pod 内长期 PostgreSQL daemon | 使用 task DB namespace / reset，不是每题容器 |
-| WebArena、Canvas、Poste、Woo | 首选 immutable SIF + per-slot overlay；受限环境使用 OCI rootfs + reflink/COW host-process backend | 保持完整官方 OCI 应用和预置状态，同时允许能力受限的长期 Pod 运行 |
+| WebArena、Canvas、Poste、Woo | immutable SIF + per-slot writable overlay + Apptainer instance | 保持完整官方 OCI 应用和预置状态 |
 | Kubernetes benchmark | 首选同 Pod 长期 K3s | 必须保持真实 Kubernetes runtime |
 
-原则：能由 venv、普通进程、Node local environment 或固定二进制可靠表达的依赖，不使用容器；只有 OCI image 自身承载了重要系统状态时，才保留 image-level runtime。保留 OCI 语义不等于强制依赖某一个 runtime：Apptainer 是首选实现；若 capability gate 失败，则从固定 tar 经 `skopeo`/`umoci` 正确合并 layer 与 whiteout，生成不可变 rootfs，再用 per-slot reflink/COW 状态和受控进程组运行。禁止直接解压 tar 或手工重装应用栈。
+原则：能由 venv、普通进程、Node local environment 或固定二进制可靠表达的依赖，不使用容器；只有 OCI image 自身承载了重要系统状态时，才保留 image-level runtime。完整应用的正式路径是 Apptainer/SIF。只有平台 capability gate 证明 Apptainer 被彻底禁止时，才进入 fat Evaluation image + chroot/bwrap/supervisor fallback；禁止直接解压 tar 后把 host-process 当作默认 backend，也禁止手工重装应用栈。
 
 ## 4. 隔离、并发与 reset 契约
 
@@ -82,15 +82,15 @@ prepare → reset → verify → acquire → evaluate → release → teardown
 需要清晰区分两个问题：
 
 1. **普通 Playwright**：不需要 Docker。安装固定 Chromium/Playwright，使用 per-task context 和临时 profile；以 context 生命周期完成隔离与清理。
-2. **Playwright-WebArena**：浏览器本身同样不需要 Docker，但 Shopping、Shopping Admin、Reddit 是有状态完整应用。不得手工把其应用栈“pip/apt 原生化”；应以 Apptainer/SIF + fresh overlay，或等价的 immutable OCI rootfs + reflink/COW state，保留其 OCI 语义。
+2. **Playwright-WebArena**：浏览器本身同样不需要 Docker，但 Shopping、Shopping Admin、Reddit 是有状态完整应用。不得手工把其应用栈“pip/apt 原生化”；正式路径必须以 Apptainer/SIF + fresh overlay 保留其 OCI 语义。
 
-现有核心替换点是 `src/mcp_services/playwright_webarena/playwright_state_manager.py`：它目前直接依赖 `docker images/load/run/exec/stop/rm`。应拆为 runtime-neutral environment/slot 接口，并按 capability gate 提供 Apptainer 与 host-process adapter。Docker adapter 可在迁移期作为显式兼容后端保留，但无 Docker 应是主路径。
+现有核心替换点是 `src/mcp_services/playwright_webarena/playwright_state_manager.py`：它目前直接依赖 `docker images/load/run/exec/stop/rm`。应拆为 runtime-neutral environment/slot 接口，并提供 Apptainer adapter。若 Apptainer gate 失败，只记录并进入明确批准的 fat-image fallback，不自动切换实现。Docker adapter 可在迁移期作为显式兼容后端保留，但无 Docker 应是主路径。
 
 ## 6. 实施顺序与改动范围
 
 1. **Capability Gate**：探测 Chromium、Playwright、PostgreSQL、Apptainer overlay、bubblewrap、K3s 的用户命名空间/cgroup/containerd 能力；输出 fail-fast 诊断。
 2. **普通 Playwright**：固定浏览器安装和路径，完善 context/profile、slot semaphore、日志与清理。
-3. **WebArena runtime adapter**：从 Docker state manager 提取 runtime-neutral 接口；先以 Postmill 完成 host-process 纵向切片，再实现 SIF/overlay/instance adapter；统一端口分配、health check、reset fingerprint 与运行时无关的 post-start hook。
+3. **WebArena runtime adapter**：从 Docker state manager 提取 runtime-neutral 接口；实现 SIF/overlay/instance 生命周期，并以 Postmill 完成首个 Apptainer 纵向切片；统一端口分配、health check、reset fingerprint 与运行时无关的 post-start hook。
 4. **reset 与 fingerprint**：对每类环境增加 golden state 校验、slot lease 和故障阻断。
 5. **launcher 与文档**：将 `run-task.sh` 和 `run-benchmark.sh` 的 Docker 网络/image/container 操作移至兼容后端；主 launcher 改为 runtime-neutral。
 6. **验证**：执行普通 Playwright smoke、WebArena reset、并发隔离、已有 verifier 等价性和 launcher 选择回归。

@@ -1,5 +1,6 @@
 import time
 import json
+import os
 import shutil
 
 from datetime import datetime
@@ -36,17 +37,19 @@ class MCPEvaluator:
         self.agent_name = (agent_name or "mcpmark").lower()
         self.task_suite = (task_suite or "standard").lower()
         if self.agent_name not in AGENT_REGISTRY:
-            raise ValueError(f"Unsupported agent '{agent_name}'. Available: {sorted(AGENT_REGISTRY)}")
-        
+            raise ValueError(
+                f"Unsupported agent '{agent_name}'. Available: {sorted(AGENT_REGISTRY)}"
+            )
+
         # Initialize model configuration
         self.reasoning_effort = reasoning_effort
         self.model_name = model
-        
+
         model_config = ModelConfig(self.model_name)
         self.api_key = model_config.api_key
         self.base_url = model_config.base_url
         self.litellm_input_model_name = model_config.litellm_input_model_name
-        
+
         # Track the actual model name from LiteLLM responses
         self.litellm_run_model_name = None
 
@@ -85,10 +88,16 @@ class MCPEvaluator:
         else:
             model_slug = self.model_name.replace(".", "-")
 
-        service_for_dir = "playwright" if mcp_service == "playwright_webarena" else mcp_service
-        suite_suffix = "" if self.task_suite in ("standard", "", None) else f"-{self.task_suite}"
+        service_for_dir = (
+            "playwright" if mcp_service == "playwright_webarena" else mcp_service
+        )
+        suite_suffix = (
+            "" if self.task_suite in ("standard", "", None) else f"-{self.task_suite}"
+        )
         service_dir_name = f"{service_for_dir}{suite_suffix}"
-        self.base_experiment_dir = output_dir / f"{model_slug}__{service_dir_name}" / exp_name
+        self.base_experiment_dir = (
+            output_dir / f"{model_slug}__{service_dir_name}" / exp_name
+        )
         self.base_experiment_dir.mkdir(parents=True, exist_ok=True)
 
     def _format_duration(self, seconds: float) -> str:
@@ -125,8 +134,12 @@ class MCPEvaluator:
                 task_name=meta_data["task_name"],
                 success=meta_data["execution_result"]["success"],
                 error_message=meta_data["execution_result"].get("error_message"),
-                verification_error=meta_data["execution_result"].get("verification_error"),
-                verification_output=meta_data["execution_result"].get("verification_output"),
+                verification_error=meta_data["execution_result"].get(
+                    "verification_error"
+                ),
+                verification_output=meta_data["execution_result"].get(
+                    "verification_output"
+                ),
                 category_id=task.category_id,
                 task_id=task.task_id,
                 model_output=None,
@@ -161,8 +174,12 @@ class MCPEvaluator:
                     task_name=meta_data["task_name"],
                     success=meta_data["execution_result"]["success"],
                     error_message=meta_data["execution_result"].get("error_message"),
-                    verification_error=meta_data["execution_result"].get("verification_error"),
-                    verification_output=meta_data["execution_result"].get("verification_output"),
+                    verification_error=meta_data["execution_result"].get(
+                        "verification_error"
+                    ),
+                    verification_output=meta_data["execution_result"].get(
+                        "verification_output"
+                    ),
                     category_id=category_id,
                     task_id=task_id,
                     model_output=None,
@@ -182,116 +199,107 @@ class MCPEvaluator:
         """
         Runs a single task, including setup, agent execution, verification, and cleanup.
         """
-        # Track overall task start time
         task_start_time = time.time()
+        agent_execution_time = 0.0
+        result: Optional[TaskResult] = None
+        setup_attempted = False
 
-        # ------------------------------------------------------------------
-        # Stage 1: Set up the initial state for the task
-        # ------------------------------------------------------------------
-        setup_start_time = time.time()
-        logger.info(
-            "\n┌─ Stage 1: Setup ─────────────────────────────────────────────────────"
-        )
-        setup_success = self.state_manager.set_up(task)
-        setup_time = time.time() - setup_start_time
-
-        if not setup_success:
-            logger.error(f"| State setup failed for task: {task.name}")
-            task_total_time = time.time() - task_start_time
-            return TaskResult(
-                task_name=task.name,
-                success=False,
-                error_message="State Duplication Error",
-                verification_error=None,
-                verification_output=None,
-                category_id=task.category_id,
-                task_id=task.task_id,
-                agent_execution_time=0.0,
-                task_execution_time=task_total_time,
-            )
-        display_time = self._format_duration(setup_time)
-        logger.info(f"└─ Completed in {display_time}\n")
-        
-        # ------------------------------------------------------------------
-        # Stage 2: Execute the task using the agent
-        # ------------------------------------------------------------------
-        logger.info(
-            "┌─ Stage 2: Execute ───────────────────────────────────────────────────"
-        )
-
-        agent_execution_start_time = time.time()
-
-        # Get task instruction from task manager
-        task_instruction = self.task_manager.get_task_instruction(task)
-
-        # Prepare task_output_dir and tool call log file
-        task_output_dir = self._get_task_output_dir(task)
-        task_output_dir.mkdir(parents=True, exist_ok=True)
-        execution_log_path = task_output_dir / "execution.log"
-
-        # Remove existing execution.log to ensure clean start
-        if execution_log_path.exists():
-            execution_log_path.unlink()
-
-        # Execute with agent
-        agent_result = self.agent.execute_sync(
-            task_instruction, str(execution_log_path)
-        )
-
-        agent_execution_time = time.time() - agent_execution_start_time
-        
-        # Extract actual model name from LiteLLM response
-        if agent_result.get("litellm_run_model_name"):
-            self.litellm_run_model_name = agent_result["litellm_run_model_name"]
-
-        # Write messages.json to task_output_dir
-        messages_path = task_output_dir / "messages.json"
-        self.results_reporter.save_messages_json(
-            agent_result.get("output", []), messages_path
-        )
-
-        # Set service-specific environment variables for verification scripts
-        self.state_manager.set_verification_environment(str(messages_path))
-        logger.info(f"└─ Completed in {self._format_duration(agent_execution_time)}\n")
-
-        # ------------------------------------------------------------------
-        # Stage 3: Verify
-        # ------------------------------------------------------------------
-        logger.info(
-            "┌─ Stage 3: Verify ────────────────────────────────────────────────────"
-        )
-        verify_start_time = time.time()
         try:
-            result = self.task_manager.execute_task(task, agent_result)
-        finally:
-            # Clean up environment variables
-            import os
+            # --------------------------------------------------------------
+            # Stage 1: Set up the initial state for the task
+            # --------------------------------------------------------------
+            setup_start_time = time.time()
+            logger.info(
+                "\n┌─ Stage 1: Setup ─────────────────────────────────────────────────────"
+            )
+            setup_attempted = True
+            setup_success = self.state_manager.set_up(task)
+            setup_time = time.time() - setup_start_time
 
+            if not setup_success:
+                logger.error("| State setup failed for task: %s", task.name)
+                result = TaskResult(
+                    task_name=task.name,
+                    success=False,
+                    error_message="State Duplication Error",
+                    verification_error=None,
+                    verification_output=None,
+                    category_id=task.category_id,
+                    task_id=task.task_id,
+                )
+                return result
+
+            logger.info(f"└─ Completed in {self._format_duration(setup_time)}\n")
+
+            # --------------------------------------------------------------
+            # Stage 2: Execute the task using the agent
+            # --------------------------------------------------------------
+            logger.info(
+                "┌─ Stage 2: Execute ───────────────────────────────────────────────────"
+            )
+            agent_execution_start_time = time.time()
+            task_instruction = self.task_manager.get_task_instruction(task)
+
+            task_output_dir = self._get_task_output_dir(task)
+            task_output_dir.mkdir(parents=True, exist_ok=True)
+            execution_log_path = task_output_dir / "execution.log"
+            if execution_log_path.exists():
+                execution_log_path.unlink()
+
+            agent_result = self.agent.execute_sync(
+                task_instruction, str(execution_log_path)
+            )
+            agent_execution_time = time.time() - agent_execution_start_time
+
+            if agent_result.get("litellm_run_model_name"):
+                self.litellm_run_model_name = agent_result["litellm_run_model_name"]
+
+            messages_path = task_output_dir / "messages.json"
+            self.results_reporter.save_messages_json(
+                agent_result.get("output", []), messages_path
+            )
+            self.state_manager.set_verification_environment(str(messages_path))
+            logger.info(
+                f"└─ Completed in {self._format_duration(agent_execution_time)}\n"
+            )
+
+            # --------------------------------------------------------------
+            # Stage 3: Verify
+            # --------------------------------------------------------------
+            logger.info(
+                "┌─ Stage 3: Verify ────────────────────────────────────────────────────"
+            )
+            verify_start_time = time.time()
+            result = self.task_manager.execute_task(task, agent_result)
+            verify_time = time.time() - verify_start_time
+            logger.info(f"└─ Completed in {self._format_duration(verify_time)}\n")
+            return result
+        finally:
             os.environ.pop("MCP_MESSAGES", None)
             os.environ.pop("MCP_GITHUB_TOKEN", None)
-            
-        verify_time = time.time() - verify_start_time
-        logger.info(f"└─ Completed in {self._format_duration(verify_time)}\n")
 
-        # ------------------------------------------------------------------
-        # Stage 4: Clean up
-        # ------------------------------------------------------------------
-        logger.info(
-            "┌─ Stage 4: Cleanup ───────────────────────────────────────────────────"
-        )
-        cleanup_start_time = time.time()
-        self.state_manager.clean_up(task)
-        cleanup_time = time.time() - cleanup_start_time
-        logger.info(f"└─ Completed in {self._format_duration(cleanup_time)}\n")
+            if setup_attempted:
+                logger.info(
+                    "┌─ Stage 4: Cleanup ───────────────────────────────────────────────────"
+                )
+                cleanup_start_time = time.time()
+                try:
+                    cleanup_success = self.state_manager.clean_up(task)
+                    if not cleanup_success:
+                        logger.error(
+                            "| State cleanup reported failure for %s", task.name
+                        )
+                except Exception:
+                    # Cleanup must never hide an agent/verifier exception. State
+                    # managers should normally absorb their own cleanup errors,
+                    # but this guard protects the evaluator contract as well.
+                    logger.exception("| State cleanup raised for %s", task.name)
+                cleanup_time = time.time() - cleanup_start_time
+                logger.info(f"└─ Completed in {self._format_duration(cleanup_time)}\n")
 
-        # Calculate total task execution time
-        task_total_time = time.time() - task_start_time
-
-        # Add timing information to the result
-        result.agent_execution_time = agent_execution_time
-        result.task_execution_time = task_total_time
-
-        return result
+            if result is not None:
+                result.agent_execution_time = agent_execution_time
+                result.task_execution_time = time.time() - task_start_time
 
     def run_evaluation(self, task_filter: str) -> EvaluationReport:
         """
@@ -341,7 +349,7 @@ class MCPEvaluator:
             task_end = time.time()
 
             results.append(task_result)
-            
+
             # Prepare directory & save
             task_output_dir = self._get_task_output_dir(task)
             task_output_dir.mkdir(parents=True, exist_ok=True)
