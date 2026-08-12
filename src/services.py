@@ -187,6 +187,11 @@ SERVICES = {
                 "description": "Browser viewport height",
                 "transform": "int",
             },
+            "browser_executable_path": {
+                "env_var": "PLAYWRIGHT_EXECUTABLE_PATH",
+                "required": False,
+                "description": "Pinned browser executable path; auto-detected when omitted",
+            },
         },
         "components": {
             "task_manager": "src.mcp_services.playwright.playwright_task_manager.PlaywrightTaskManager",
@@ -201,6 +206,7 @@ SERVICES = {
                 "user_profile": "user_profile",
                 "viewport_width": "viewport_width",
                 "viewport_height": "viewport_height",
+                "browser_executable_path": "browser_executable_path",
             },
             "login_helper": {
                 "browser": "browser",

@@ -203,6 +203,7 @@ class BaseMCPAgent(ABC):
             headless = self.service_config.get("headless", True)
             viewport_width = self.service_config.get("viewport_width", 1280)
             viewport_height = self.service_config.get("viewport_height", 720)
+            executable_path = self.service_config.get("browser_executable_path")
 
             args = ["-y", "@playwright/mcp@0.0.68"]
             if headless:
@@ -212,11 +213,13 @@ class BaseMCPAgent(ABC):
                     "--isolated",
                     "--no-sandbox",
                     "--browser",
-                    browser,
+                    "chrome" if browser == "chromium" else browser,
                     "--viewport-size",
-                    f"{viewport_width},{viewport_height}",
+                    f"{viewport_width}x{viewport_height}",
                 ]
             )
+            if executable_path:
+                args.extend(["--executable-path", str(executable_path)])
             return MCPStdioServer(command="npx", args=args)
 
         if self.mcp_service == "postgres":

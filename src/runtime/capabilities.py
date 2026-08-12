@@ -66,10 +66,12 @@ def _command_capability(name: str, command: Sequence[str]) -> Capability:
     )
 
 
-def _playwright_browser_capability() -> Capability:
+def find_playwright_browser_executable() -> Path | None:
+    """Resolve an already-installed Playwright Chromium executable."""
+
     playwright = shutil.which("playwright")
     if not playwright:
-        return Capability("playwright_chromium", False, "playwright CLI not found")
+        return None
 
     try:
         result = subprocess.run(
@@ -79,15 +81,11 @@ def _playwright_browser_capability() -> Capability:
             timeout=15,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return Capability("playwright_chromium", False, f"dry-run failed: {exc}")
+    except (OSError, subprocess.SubprocessError):
+        return None
 
     if result.returncode != 0:
-        return Capability(
-            "playwright_chromium",
-            False,
-            (result.stderr or result.stdout).strip() or "playwright dry-run failed",
-        )
+        return None
 
     locations = re.findall(r"Install location:\s+(.+)", result.stdout)
     chromium_locations = [Path(value.strip()) for value in locations]
@@ -101,11 +99,19 @@ def _playwright_browser_capability() -> Capability:
                     "chrome",
                     "headless_shell",
                 }:
-                    return Capability("playwright_chromium", True, str(candidate))
+                    return candidate
 
-    detail = ", ".join(str(path) for path in chromium_locations) or "no install path"
+    return None
+
+
+def _playwright_browser_capability() -> Capability:
+    executable = find_playwright_browser_executable()
+    if executable is not None:
+        return Capability("playwright_chromium", True, str(executable))
     return Capability(
-        "playwright_chromium", False, f"browser executable missing: {detail}"
+        "playwright_chromium",
+        False,
+        "installed Playwright Chromium executable was not found",
     )
 
 

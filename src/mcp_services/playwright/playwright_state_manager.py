@@ -19,6 +19,7 @@ from playwright.sync_api import (
 from src.base.state_manager import BaseStateManager, InitialStateInfo
 from src.base.task_manager import BaseTask
 from src.logger import get_logger
+from src.runtime.capabilities import find_playwright_browser_executable
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,7 @@ class PlaywrightStateManager(BaseStateManager):
         user_profile: str = "isolated",
         viewport_width: int = 1280,
         viewport_height: int = 720,
+        browser_executable_path: Optional[str | Path] = None,
     ):
         """
         Initialize Playwright state manager.
@@ -63,6 +65,11 @@ class PlaywrightStateManager(BaseStateManager):
         self.user_profile = user_profile
         self.viewport_width = viewport_width
         self.viewport_height = viewport_height
+        self.browser_executable_path = (
+            Path(browser_executable_path).expanduser().resolve()
+            if browser_executable_path
+            else find_playwright_browser_executable()
+        )
 
         # Browser management
         self._playwright = None
@@ -290,7 +297,12 @@ class PlaywrightStateManager(BaseStateManager):
         config = {
             "browser": self.browser_name,
             "headless": self.headless,
+            "viewport_width": self.viewport_width,
+            "viewport_height": self.viewport_height,
         }
+
+        if self.browser_executable_path is not None:
+            config["browser_executable_path"] = str(self.browser_executable_path)
 
         # Add browser state file if it exists
         if self.state_path.exists():
