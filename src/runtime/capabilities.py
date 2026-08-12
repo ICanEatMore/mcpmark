@@ -115,6 +115,18 @@ def _path_capability(name: str, path: Path, *, writable: bool = False) -> Capabi
     return Capability(name, available, f"{path} must {requirement}")
 
 
+def _fuse_capability() -> Capability:
+    path = Path("/dev/fuse")
+    if not path.exists():
+        return Capability("fuse_device", False, "/dev/fuse does not exist")
+    try:
+        descriptor = os.open(path, os.O_RDWR | os.O_NONBLOCK)
+    except OSError as exc:
+        return Capability("fuse_device", False, f"cannot open /dev/fuse: {exc}")
+    os.close(descriptor)
+    return Capability("fuse_device", True, "/dev/fuse opens read-write")
+
+
 def _overlay_capability() -> Capability:
     filesystems = Path("/proc/filesystems")
     try:
@@ -126,6 +138,8 @@ def _overlay_capability() -> Capability:
 
 def _cni_capability() -> Capability:
     candidates = (
+        Path("/usr/libexec/apptainer/cni"),
+        Path("/usr/lib/cni"),
         Path("/usr/libexec/cni"),
         Path("/usr/local/libexec/cni"),
         Path("/opt/cni/bin"),
@@ -158,7 +172,7 @@ def probe_capabilities() -> list[Capability]:
         _executable_capability("postgres"),
         _executable_capability("k3s"),
         _executable_capability("docker"),
-        _path_capability("fuse_device", Path("/dev/fuse"), writable=True),
+        _fuse_capability(),
         _overlay_capability(),
         _cni_capability(),
     ]
@@ -180,9 +194,15 @@ def probe_capabilities() -> list[Capability]:
         capabilities.append(
             _command_capability("user_namespace_smoke", [unshare, "-Ur", "true"])
         )
+        capabilities.append(
+            _command_capability("mount_namespace_smoke", [unshare, "-Urm", "true"])
+        )
     else:
         capabilities.append(
             Capability("user_namespace_smoke", False, "unshare command not found")
+        )
+        capabilities.append(
+            Capability("mount_namespace_smoke", False, "unshare command not found")
         )
 
     try:

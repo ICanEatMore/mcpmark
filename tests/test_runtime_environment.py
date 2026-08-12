@@ -2,7 +2,12 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import Mock, call, patch
 
-from src.runtime.capabilities import Capability, main
+from src.runtime.capabilities import (
+    Capability,
+    _cni_capability,
+    _fuse_capability,
+    main,
+)
 from src.runtime.environment import (
     EnvironmentHandle,
     EnvironmentSession,
@@ -107,3 +112,21 @@ class CapabilityCliTests(TestCase):
 
         self.assertEqual(main(["--require", "apptainer"]), 1)
         self.assertEqual(main([]), 0)
+
+    @patch("src.runtime.capabilities.os.open", side_effect=PermissionError("denied"))
+    @patch("src.runtime.capabilities.Path.exists", return_value=True)
+    def test_fuse_requires_device_open_not_only_path_presence(
+        self, _exists, _open
+    ) -> None:
+        result = _fuse_capability()
+
+        self.assertFalse(result.available)
+        self.assertIn("cannot open", result.detail)
+
+    @patch("src.runtime.capabilities.os.access", return_value=True)
+    @patch("src.runtime.capabilities.Path.is_file", return_value=True)
+    def test_cni_detects_apptainer_packaged_portmap(self, _is_file, _access) -> None:
+        result = _cni_capability()
+
+        self.assertTrue(result.available)
+        self.assertIn("/usr/libexec/apptainer/cni/portmap", result.detail)
